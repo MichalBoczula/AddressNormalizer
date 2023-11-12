@@ -1,5 +1,7 @@
 using AddressNormalizer.Models;
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.Mvc;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -56,7 +58,7 @@ app.MapPost("/NormalizeAddress", async ([FromBody] string address) =>
 app.MapGet("/TryToJsonize", async () =>
 {
     string input = "\n\nAnswer: \n{\n    \"city\": \"Warszawa\",\n    \"postalCode\": \"54-000\",\n    \"street\": \"Dluga\",\n    \"buildingNumber\": \"14\",\n    \"flatNumber\": \"15\"\n}";
-        
+
     string cleanedInput = Regex.Replace(input, @"\\n", "");
     cleanedInput = cleanedInput.Replace("\\\"", "\"");
     cleanedInput = cleanedInput.Replace("Answer: ", "");
@@ -64,6 +66,110 @@ app.MapGet("/TryToJsonize", async () =>
     NormalizedAddress normalizedAddress = JsonSerializer.Deserialize<NormalizedAddress>(cleanedInput);
 
     return normalizedAddress;
+});
+
+app.MapGet("/TalkWithAssistant", async () =>
+{
+    string openaiApiKey = @"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";
+
+    string apiUrl = "https://api.openai.com/v1/chat/completions";
+
+    string jsonData = @"{
+            ""model"": ""gpt-3.5-turbo-1106"",
+            ""response_format"": { ""type"": ""json_object"" },
+            ""messages"": [
+              {
+                ""role"": ""system"",
+                ""content"": ""You are a helpful assistant designed to output JSON.""
+              },
+              {
+                ""role"": ""user"",
+                ""content"": ""Who won the world series in 2020?""
+              }
+            ]
+        }";
+
+    using (HttpClient client = new HttpClient())
+    {
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", openaiApiKey);
+        client.DefaultRequestHeaders
+               .Accept
+               .Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+
+        var content = new StringContent(jsonData, Encoding.UTF8, "application/json");
+
+        HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, "relativeAddress");
+
+        HttpResponseMessage response = await client.PostAsync(apiUrl, content);
+
+        if (response.IsSuccessStatusCode)
+        {
+            string result = await response.Content.ReadAsStringAsync();
+            return result;
+        }
+        else
+        {
+            return $"Error: {response.StatusCode} - {response.ReasonPhrase}";
+        }
+    }
+});
+
+app.MapGet("/GetFiles", async () =>
+{
+    string openaiApiKey = @"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";
+
+    string apiUrl = "https://api.openai.com/v1/files";
+
+    using (HttpClient client = new HttpClient())
+    {
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", openaiApiKey);
+
+        HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, "relativeAddress");
+
+        HttpResponseMessage response = await client.GetAsync(apiUrl);
+
+        if (response.IsSuccessStatusCode)
+        {
+            string result = await response.Content.ReadAsStringAsync();
+            return result;
+        }
+        else
+        {
+            return $"Error: {response.StatusCode} - {response.ReasonPhrase}";
+        }
+    }
+});
+
+app.MapPost("/UploadFile", async ([FromQuery] string filePath) =>
+{
+    string openaiApiKey = @"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";
+    string file = filePath; 
+    string apiUrl = "https://api.openai.com/v1/files";
+    string purpose = "fine-tune";
+
+    using (HttpClient client = new HttpClient())
+    using (MultipartFormDataContent content = new MultipartFormDataContent())
+    {
+        client.DefaultRequestHeaders.Add("Authorization", $"Bearer {openaiApiKey}");
+
+        content.Add(new StringContent(purpose), "purpose");
+
+        byte[] fileContent = System.IO.File.ReadAllBytes(file);
+        ByteArrayContent fileContentPart = new ByteArrayContent(fileContent);
+        content.Add(fileContentPart, "file", "test2.jsonl");
+
+        HttpResponseMessage response = await client.PostAsync(apiUrl, content);
+
+        if (response.IsSuccessStatusCode)
+        {
+            Console.WriteLine("File uploaded successfully!");
+        }
+        else
+        {
+            Console.WriteLine($"Error: {response.StatusCode}");
+        }
+    }
 });
 
 app.Run();
